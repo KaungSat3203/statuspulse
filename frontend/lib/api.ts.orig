@@ -1,0 +1,72 @@
+export type Monitor = {
+  id: string;
+  name: string;
+  url: string;
+  expected_status_code: number;
+  interval_seconds: number;
+  timeout_seconds: number;
+  active: boolean;
+  consecutive_failures: number;
+  consecutive_successes: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CheckResult = {
+  monitor_id: string;
+  checked_at: string;
+  status_code: number;
+  latency_ms: number;
+  reachable: boolean;
+  error: string;
+};
+
+export const API_URL =
+  process.env.NEXT_PUBLIC_STATUSPULSE_API_URL ?? "http://localhost:8080";
+
+export async function getMonitors(): Promise<Monitor[]> {
+  const response = await fetch(`${API_URL}/monitors`);
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch monitors");
+  }
+
+  return response.json();
+
+export type CreateMonitorInput = {
+  name: string;
+  url: string;
+  expected_status_code: number;
+  interval_seconds: number;
+  timeout_seconds: number;
+};
+
+export async function createMonitor(
+  input: CreateMonitorInput,
+): Promise<Monitor> {
+  const response = await fetch(`${API_URL}/monitors`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    let message = "Failed to create monitor";
+
+    try {
+      const body = (await response.json()) as { error?: string };
+      if (body.error) {
+        message = body.error;
+      }
+    } catch {
+      // Use the generic message when the response has no JSON error body.
+    }
+
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+}

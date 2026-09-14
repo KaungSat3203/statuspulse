@@ -1,0 +1,100 @@
+import { getMonitors } from "@/lib/api";
+
+export default async function Home() {
+  const monitors = await getMonitors();
+
+  const onlineCount = monitors.filter(
+    (monitor) => monitor.consecutive_failures === 0,
+  ).length;
+
+  const downCount = monitors.filter(
+    (monitor) => monitor.consecutive_failures > 0,
+  ).length;
+
+  return (
+    <main className="min-h-screen bg-zinc-950 text-white">
+      <div className="mx-auto max-w-7xl px-6 py-8">
+        <header className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold">StatusPulse</h1>
+            <p className="mt-1 text-sm text-zinc-400">
+              Monitor your services in real time.
+            </p>
+          </div>
+
+          <button className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-zinc-200">
+            + Add Monitor
+          </button>
+        </header>
+
+        <section className="mt-10">
+          <h2 className="text-lg font-medium">Overview</h2>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+              <p className="text-sm text-zinc-400">Monitors</p>
+              <p className="mt-2 text-3xl font-semibold">
+                {monitors.length}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+              <p className="text-sm text-zinc-400">Online</p>
+              <p className="mt-2 text-3xl font-semibold">
+                {onlineCount}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+              <p className="text-sm text-zinc-400">Down</p>
+              <p className="mt-2 text-3xl font-semibold">
+                {downCount}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-10">
+          <h2 className="text-lg font-medium">Monitors</h2>
+
+          <div className="mt-4 space-y-3">
+            {monitors.map((monitor) => (
+              <div
+                key={monitor.id}
+                className="rounded-xl border border-zinc-800 bg-zinc-900 p-5"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-medium">{monitor.name}</h3>
+                    <p className="mt-1 text-sm text-zinc-400">
+                      {monitor.url}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
+                    <span className="text-sm text-green-400">UP</span>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex gap-6 text-sm text-zinc-400">
+                  <span>
+                    Expected: {monitor.expected_status_code}
+                  </span>
+
+                  <span>
+                    Interval: {monitor.interval_seconds}s
+                  </span>
+
+                  <span>
+                    Timeout: {monitor.timeout_seconds}s
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}

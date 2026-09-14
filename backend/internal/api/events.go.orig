@@ -1,0 +1,62 @@
+package api
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/KaungSat3203/statuspulse/backend/internal/telemetry"
+)
+
+type EventHandler struct {
+	broadcaster *telemetry.Broadcaster
+}
+
+func NewEventHandler(broadcaster *telemetry.Broadcaster) *EventHandler {
+	return &EventHandler{broadcaster: broadcaster}
+}
+
+func (h *EventHandler) Stream(c *gin.Context) {
+	subscriber, unsubscribe := h.broadcaster.Subscribe()
+	defer unsubscribe()
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	if c.GetHeader("Origin") == "http://localhost:3000" {
+		c.Header("Access-Control-Allow-Origin", "http://localhost:3000")
+		c.Header("Vary", "Origin")
+	}
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case payload, ok := <-subscriber:
+			if !ok {
+				return
+			}
+
+			if err := writeSSEEvent(c.Writer, payload); err != nil {
+				return
+			}
+
+			flusher.Flush()
+		}
+	}
+}
+
+func writeSSEEvent(w io.Writer, payload []byte) error {
+	_, err := fmt.Fprintf(w, "event: check\ndata: %s\n\n", payload)
+	return err
+}

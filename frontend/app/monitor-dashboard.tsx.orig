@@ -1,0 +1,127 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+import { API_URL, type CheckResult, type Monitor } from "@/lib/api";
+
+type LiveMonitor = Monitor & { latestCheck?: CheckResult };
+
+export default function MonitorDashboard({
+  initialMonitors,
+}: {
+  initialMonitors: Monitor[];
+}) {
+  const [monitors, setMonitors] = useState<LiveMonitor[]>(initialMonitors);
+
+  useEffect(() => {
+    const events = new EventSource(API_URL + "/events");
+
+    const handleCheck = (event: Event) => {
+      try {
+        const check = JSON.parse(
+          (event as MessageEvent<string>).data,
+        ) as CheckResult;
+
+        setMonitors((current) =>
+          current.map((monitor) =>
+            monitor.id === check.monitor_id
+              ? { ...monitor, latestCheck: check }
+              : monitor,
+          ),
+        );
+      } catch {
+        // Ignore a malformed event and keep the last known monitor state.
+      }
+    };
+
+    events.addEventListener("check", handleCheck);
+    events.addEventListener("error", () => {
+      // EventSource automatically reconnects after a temporary disconnect.
+    });
+
+    return () => {
+      events.removeEventListener("check", handleCheck);
+      events.close();
+    };
+  }, []);
+
+  const onlineCount = monitors.filter(isMonitorUp).length;
+
+  return (
+    <>
+      <section className="mt-10">
+        <h2 className="text-lg font-medium">Overview</h2>
+        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <StatCard label="Monitors" value={monitors.length} />
+          <StatCard label="Online" value={onlineCount} />
+          <StatCard label="Down" value={monitors.length - onlineCount} />
+        </div>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="text-lg font-medium">Monitors</h2>
+        <div className="mt-4 space-y-3">
+          {monitors.map((monitor) => {
+            const isUp = isMonitorUp(monitor);
+            const check = monitor.latestCheck;
+
+            return (
+              <div
+                key={monitor.id}
+                className="rounded-xl border border-zinc-800 bg-zinc-900 p-5"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-medium">{monitor.name}</h3>
+                    <p className="mt-1 text-sm text-zinc-400">{monitor.url}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={
+                        isUp
+                          ? "h-2.5 w-2.5 rounded-full bg-green-500"
+                          : "h-2.5 w-2.5 rounded-full bg-red-500"
+                      }
+                    />
+                    <span className={isUp ? "text-sm text-green-400" : "text-sm text-red-400"}>
+                      {isUp ? "UP" : "DOWN"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm text-zinc-400">
+                  <span>Expected: {monitor.expected_status_code}</span>
+                  <span>Interval: {monitor.interval_seconds}s</span>
+                  <span>Timeout: {monitor.timeout_seconds}s</span>
+                  <span>HTTP {check?.status_code ?? "—"}</span>
+                  <span>{check ? check.latency_ms + " ms" : "Latency —"}</span>
+                  <span>Last checked: {formatCheckedAt(check?.checked_at)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+      <p className="text-sm text-zinc-400">{label}</p>
+      <p className="mt-2 text-3xl font-semibold">{value}</p>
+    </div>
+  );
+}
+
+function isMonitorUp(monitor: LiveMonitor) {
+  return monitor.latestCheck?.reachable ?? monitor.consecutive_failures === 0;
+}
+
+function formatCheckedAt(checkedAt?: string) {
+  if (!checkedAt) return "—";
+
+  const date = new Date(checkedAt);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+}
