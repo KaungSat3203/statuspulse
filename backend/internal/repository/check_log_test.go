@@ -2,30 +2,14 @@ package repository
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/joho/godotenv"
-
-	"github.com/KaungSat3203/statuspulse/backend/internal/db"
 	"github.com/KaungSat3203/statuspulse/backend/internal/models"
 )
 
 func TestCheckLogRepository_Create(t *testing.T) {
-	// Load the project's root .env when running tests locally.
-	_ = godotenv.Load("../../.env")
-
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Fatal("DATABASE_URL is not set")
-	}
-
-	pool, err := db.Connect(databaseURL)
-	if err != nil {
-		t.Fatalf("connect to database: %v", err)
-	}
-	defer pool.Close()
+	pool := newTestDatabase(t)
 
 	// Create a monitor first because check_logs.monitor_id
 	// references monitors.id.
@@ -39,7 +23,7 @@ func TestCheckLogRepository_Create(t *testing.T) {
 		TimeoutSeconds:     5,
 	}
 
-	err = monitorRepo.Create(context.Background(), monitor)
+	err := monitorRepo.Create(context.Background(), monitor)
 	if err != nil {
 		t.Fatalf("create test monitor: %v", err)
 	}
@@ -66,7 +50,7 @@ func TestCheckLogRepository_Create(t *testing.T) {
 		Reachable:  true,
 	}
 
-	err = repo.CreateBatch(context.Background(), []models.CheckResult{result})
+	_, err = repo.CreateBatch(context.Background(), []models.CheckResult{result})
 	if err != nil {
 		t.Fatalf("create check log: %v", err)
 	}
@@ -111,18 +95,7 @@ func TestCheckLogRepository_Create(t *testing.T) {
 }
 
 func TestCheckLogRepository_CreateBatch(t *testing.T) {
-	_ = godotenv.Load("../../.env")
-
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Fatal("DATABASE_URL is not set")
-	}
-
-	pool, err := db.Connect(databaseURL)
-	if err != nil {
-		t.Fatalf("connect database: %v", err)
-	}
-	defer pool.Close()
+	pool := newTestDatabase(t)
 
 	ctx := context.Background()
 
@@ -166,13 +139,13 @@ func TestCheckLogRepository_CreateBatch(t *testing.T) {
 
 	checkLogRepo := NewCheckLogRepository(pool)
 
-	if err := checkLogRepo.CreateBatch(ctx, results); err != nil {
+	if _, err := checkLogRepo.CreateBatch(ctx, results); err != nil {
 		t.Fatalf("create batch: %v", err)
 	}
 
 	var count int
 
-	err = pool.QueryRow(
+	err := pool.QueryRow(
 		ctx,
 		`
 		SELECT COUNT(*)

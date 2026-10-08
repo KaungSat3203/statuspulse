@@ -1,8 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
+  --background: #09090b;
+  --foreground: #f4f4f5;
 }
 
 @theme inline {
@@ -12,15 +13,50 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+@layer components {
+  .dashboard-surface {
+    background: radial-gradient(ellipse at top left, rgb(99 102 241 / 0.07), transparent 45%), var(--background);
+  }
+
+  .ui-panel {
+    @apply rounded-2xl border border-zinc-800/80 bg-zinc-900/70 shadow-sm;
+  }
+
+  .ui-button {
+    @apply inline-flex items-center justify-center rounded-lg border border-zinc-700/70 bg-zinc-800/40 px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .ui-button-primary {
+    @apply inline-flex items-center justify-center rounded-lg border border-indigo-400/20 bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .ui-button-quiet {
+    @apply inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-medium text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .ui-button-danger {
+    @apply inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .ui-dialog-backdrop {
+    @apply fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 backdrop-blur-sm;
+  }
+
+  .ui-dialog {
+    @apply w-full rounded-2xl border border-zinc-700/70 bg-zinc-900 p-7 shadow-2xl;
+  }
+
+  .ui-input {
+    @apply w-full rounded-lg border border-zinc-700/80 bg-zinc-950/70 px-3 py-2.5 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-600 focus:border-indigo-400;
+  }
+
+  .ui-close {
+    @apply flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xl leading-none text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white;
+  }
 }

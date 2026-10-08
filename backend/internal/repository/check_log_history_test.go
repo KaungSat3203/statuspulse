@@ -2,28 +2,14 @@ package repository
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/joho/godotenv"
-
-	"github.com/KaungSat3203/statuspulse/backend/internal/db"
 	"github.com/KaungSat3203/statuspulse/backend/internal/models"
 )
 
 func TestCheckLogRepositoryListByMonitorID(t *testing.T) {
-	_ = godotenv.Load("../../.env")
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Fatal("DATABASE_URL is not set")
-	}
-
-	pool, err := db.Connect(databaseURL)
-	if err != nil {
-		t.Fatalf("connect database: %v", err)
-	}
-	defer pool.Close()
+	pool := newTestDatabase(t)
 
 	ctx := context.Background()
 	monitorRepo := NewMonitorRepository(pool)
@@ -55,7 +41,7 @@ func TestCheckLogRepositoryListByMonitorID(t *testing.T) {
 	base := time.Date(2026, time.January, 16, 12, 0, 0, 0, time.UTC)
 
 	repo := NewCheckLogRepository(pool)
-	if err := repo.CreateBatch(ctx, []models.CheckResult{
+	if _, err := repo.CreateBatch(ctx, []models.CheckResult{
 		{MonitorID: monitor.ID, CheckedAt: base.Add(-2 * time.Minute), StatusCode: 200, LatencyMs: 10, Reachable: true},
 		{MonitorID: monitor.ID, CheckedAt: base.Add(-time.Minute), StatusCode: 500, LatencyMs: 20, Reachable: false, Error: "unexpected status"},
 		{MonitorID: monitor.ID, CheckedAt: base, StatusCode: 200, LatencyMs: 30, Reachable: true},

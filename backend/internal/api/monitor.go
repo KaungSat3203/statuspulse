@@ -1,11 +1,9 @@
 package api
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/KaungSat3203/statuspulse/backend/internal/models"
 	"github.com/KaungSat3203/statuspulse/backend/internal/service"
@@ -51,7 +49,7 @@ func (h *MonitorHandler) CreateMonitor(c *gin.Context) {
 		TimeoutSeconds:     request.TimeoutSeconds,
 	}
 	if err := h.service.CreateMonitor(c.Request.Context(), monitor); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		monitorError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, monitor)
@@ -60,16 +58,20 @@ func (h *MonitorHandler) CreateMonitor(c *gin.Context) {
 func (h *MonitorHandler) ListMonitors(c *gin.Context) {
 	monitors, err := h.service.ListMonitors(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		monitorError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, monitors)
 }
 
 func (h *MonitorHandler) GetMonitor(c *gin.Context) {
+	if !isValidMonitorID(c.Param("id")) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid monitor ID"})
+		return
+	}
 	monitor, err := h.service.GetMonitor(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		monitorError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, monitor)
@@ -97,11 +99,7 @@ func (h *MonitorHandler) UpdateMonitor(c *gin.Context) {
 		Active:             request.Active,
 	})
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "monitor not found"})
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		monitorError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, monitor)
@@ -115,7 +113,7 @@ func (h *MonitorHandler) DeleteMonitor(c *gin.Context) {
 	}
 
 	if err := h.service.DeleteMonitor(c.Request.Context(), id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "monitor not found"})
+		monitorError(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)

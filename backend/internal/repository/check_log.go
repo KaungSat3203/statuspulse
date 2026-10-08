@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/KaungSat3203/statuspulse/backend/internal/models"
@@ -73,16 +74,77 @@ func (r *CheckLogRepository) DeleteOlderThan(ctx context.Context, cutoff time.Ti
 	return result.RowsAffected(), nil
 }
 
-func (r *CheckLogRepository) CreateBatch(ctx context.Context, results []models.CheckResult) error {
+// CreateBatch atomically saves results whose monitors still exist and returns
+// only committed results. Parent-row locks close the race between filtering and
+// COPY; a concurrent DELETE waits for commit, then cascades normally.
+func (r *CheckLogRepository) CreateBatch(
+	ctx context.Context,
+	results []models.CheckResult,
+) ([]models.CheckResult, error) {
 	if len(results) == 0 {
-		return nil
+		return nil, nil
 	}
-	rows := make([][]interface{}, len(results))
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin check log batch: %w", err)
+	}
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = tx.Rollback(cleanupCtx)
+	}()
+
+	ids := make([]string, len(results))
 	for i, result := range results {
-		rows[i] = []interface{}{result.MonitorID, result.CheckedAt, result.StatusCode, result.LatencyMs, result.Reachable, result.Error}
+		ids[i] = result.MonitorID
 	}
-	_, err := r.db.CopyFrom(ctx, pgx.Identifier{"check_logs"}, []string{
-		"monitor_id", "checked_at", "status_code", "latency_ms", "reachable", "error_message",
-	}, pgx.CopyFromRows(rows))
-	return err
+	// Always acquire locks in the same order for overlapping batches.
+	monitors, err := tx.Query(ctx, `
+		SELECT id FROM monitors
+		WHERE id = ANY($1::uuid[])
+		ORDER BY id
+		FOR KEY SHARE
+	`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("lock check log monitors: %w", err)
+	}
+	existing := make(map[string]struct{}, len(results))
+	for monitors.Next() {
+		var id string
+		if err := monitors.Scan(&id); err != nil {
+			monitors.Close()
+			return nil, fmt.Errorf("scan check log monitor: %w", err)
+		}
+		existing[id] = struct{}{}
+	}
+	err = monitors.Err()
+	monitors.Close()
+	if err != nil {
+		return nil, fmt.Errorf("iterate check log monitors: %w", err)
+	}
+
+	persisted := make([]models.CheckResult, 0, len(results))
+	rows := make([][]any, 0, len(results))
+	for _, result := range results {
+		if _, ok := existing[strings.ToLower(result.MonitorID)]; !ok {
+			continue
+		}
+		persisted = append(persisted, result)
+		rows = append(rows, []any{
+			result.MonitorID, result.CheckedAt, result.StatusCode,
+			result.LatencyMs, result.Reachable, result.Error,
+		})
+	}
+	if len(rows) > 0 {
+		if _, err := tx.CopyFrom(ctx, pgx.Identifier{"check_logs"}, []string{
+			"monitor_id", "checked_at", "status_code", "latency_ms", "reachable", "error_message",
+		}, pgx.CopyFromRows(rows)); err != nil {
+			return nil, fmt.Errorf("copy check log batch: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit check log batch: %w", err)
+	}
+	return persisted, nil
 }

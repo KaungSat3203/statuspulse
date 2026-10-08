@@ -9,8 +9,15 @@ func RegisterRoutes(
 	incidentHandler *IncidentHandler,
 	eventHandler *EventHandler,
 	dailyMetricsHistoryHandler *DailyMetricsHistoryHandler,
+	authHandler *AuthHandler,
 ) {
-	router.Use(LocalFrontendCORS())
+	router.Use(authHandler.BrowserSecurity())
+	router.POST("/auth/signup", authHandler.Signup)
+	router.POST("/auth/login", authHandler.Login)
+	// Logout is idempotent even after expiry, but is always CSRF-protected.
+	router.POST("/auth/logout", authHandler.Logout)
+	router.Use(authHandler.Authenticate())
+	router.GET("/auth/me", authHandler.Me)
 
 	router.POST("/monitors", monitorHandler.CreateMonitor)
 	router.GET("/monitors", monitorHandler.ListMonitors)

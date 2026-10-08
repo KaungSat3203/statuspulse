@@ -3,28 +3,14 @@ package repository
 import (
 	"context"
 	"math"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/joho/godotenv"
-
-	"github.com/KaungSat3203/statuspulse/backend/internal/db"
 	"github.com/KaungSat3203/statuspulse/backend/internal/models"
 )
 
 func TestDailyMetricsRepositoryAggregate(t *testing.T) {
-	_ = godotenv.Load("../../.env")
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Fatal("DATABASE_URL is not set")
-	}
-
-	pool, err := db.Connect(databaseURL)
-	if err != nil {
-		t.Fatalf("connect database: %v", err)
-	}
-	defer pool.Close()
+	pool := newTestDatabase(t)
 	ctx := context.Background()
 
 	monitorRepo := NewMonitorRepository(pool)
@@ -48,7 +34,7 @@ func TestDailyMetricsRepositoryAggregate(t *testing.T) {
 		{MonitorID: monitor.ID, CheckedAt: day.Add(5 * time.Hour), LatencyMs: 50, Reachable: true},
 		{MonitorID: monitor.ID, CheckedAt: day.Add(24 * time.Hour), LatencyMs: 888, Reachable: true},
 	}
-	if err := NewCheckLogRepository(pool).CreateBatch(ctx, logs); err != nil {
+	if _, err := NewCheckLogRepository(pool).CreateBatch(ctx, logs); err != nil {
 		t.Fatalf("create logs: %v", err)
 	}
 
@@ -76,7 +62,7 @@ func TestDailyMetricsRepositoryAggregate(t *testing.T) {
 		{MonitorID: monitor.ID, CheckedAt: mixedDay.Add(2 * time.Hour), LatencyMs: 200, Reachable: false},
 		{MonitorID: monitor.ID, CheckedAt: mixedDay.Add(3 * time.Hour), LatencyMs: 300, Reachable: true},
 	}
-	if err := NewCheckLogRepository(pool).CreateBatch(ctx, mixed); err != nil {
+	if _, err := NewCheckLogRepository(pool).CreateBatch(ctx, mixed); err != nil {
 		t.Fatalf("create mixed logs: %v", err)
 	}
 	metric, err = repo.Aggregate(ctx, monitor.ID, mixedDay)

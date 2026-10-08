@@ -1,3 +1,5 @@
+import type { LiveMonitor } from "./monitor-status";
+
 export type Monitor = {
   id: string;
   name: string;
@@ -36,15 +38,61 @@ export type DailyMonitorMetric = {
   metric_date: string;
   total_checks: number;
   successful_checks: number;
-  mean_latency_ms: number | null;
-  p95_latency_ms: number | null;
+  mean_latency_ms?: number | null;
+  p95_latency_ms?: number | null;
 };
 
-export const API_URL =
-  process.env.NEXT_PUBLIC_STATUSPULSE_API_URL ?? "http://localhost:8080";
+// Browser requests stay same-origin. Only the server knows the Go upstream URL.
+export const API_URL = "/api";
+export type User = { id: string; email: string };
+export type ApiFetch = (path: string, init?: RequestInit) => Promise<Response>;
 
-export async function getMonitors(): Promise<Monitor[]> {
-  const response = await fetch(`${API_URL}/monitors`);
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
+
+export const apiFetch: ApiFetch = async (path, init = {}) => {
+  const headers = new Headers(init.headers);
+  if (!["GET", "HEAD"].includes(init.method ?? "GET")) {
+    headers.set("X-StatusPulse-CSRF", "1");
+  }
+  const response = await fetch(API_URL + path, {
+    ...init, headers, cache: "no-store", credentials: "same-origin",
+  });
+  if (response.status === 401 && !["/auth/login", "/auth/signup"].includes(path)) {
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("statuspulse:session-ended"));
+    throw new ApiError("Your session has expired. Please sign in again.", 401);
+  }
+  return response;
+};
+
+export async function authenticate(mode: "login" | "signup", email: string, password: string): Promise<User> {
+  const response = await apiFetch("/auth/" + mode, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: string } | null;
+    throw new ApiError(body?.error ?? "Unable to sign in. Please try again.", response.status);
+  }
+  return response.json();
+}
+
+export async function logout(): Promise<void> {
+  const response = await apiFetch("/auth/logout", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+  });
+  if (!response.ok) throw new Error("Unable to sign out. Please try again.");
+}
+
+export async function getSessionUser(): Promise<User> {
+  const response = await apiFetch("/auth/me");
+  if (!response.ok) throw new ApiError("Unable to verify your session.", response.status);
+  return response.json();
+}
+
+export async function getMonitors(request: ApiFetch = apiFetch): Promise<Monitor[]> {
+  const response = await request("/monitors", { cache: "no-store" });
 
   if (!response.ok) {
     throw new Error("Failed to fetch monitors");
@@ -53,8 +101,27 @@ export async function getMonitors(): Promise<Monitor[]> {
   return response.json();
 }
 
-export async function getIncidents(): Promise<Incident[]> {
-  const response = await fetch(`${API_URL}/incidents`);
+// Hydrate status from persisted checks on every dashboard request.
+export async function getMonitorsWithLatestChecks(request: ApiFetch = apiFetch): Promise<LiveMonitor[]> {
+  const monitors = await getMonitors(request);
+  return Promise.all(
+    monitors.map(async (monitor): Promise<LiveMonitor> => {
+      try {
+        const [latestCheck] = await getMonitorChecks(monitor.id, 1, request);
+        return { ...monitor, latestCheck };
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) throw error;
+        return {
+          ...monitor,
+          latestCheckError: "Unable to load the latest check. Waiting for a live update.",
+        };
+      }
+    }),
+  );
+}
+
+export async function getIncidents(request: ApiFetch = apiFetch): Promise<Incident[]> {
+  const response = await request("/incidents");
 
   if (!response.ok) {
     throw new Error("Failed to fetch incidents");
@@ -76,8 +143,8 @@ export async function updateMonitor(
   monitorID: string,
   input: UpdateMonitorInput,
 ): Promise<Monitor> {
-  const response = await fetch(
-    `${API_URL}/monitors/${encodeURIComponent(monitorID)}`,
+  const response = await apiFetch(
+    `/monitors/${encodeURIComponent(monitorID)}`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -102,8 +169,8 @@ export async function updateMonitorActive(
   monitorID: string,
   active: boolean,
 ): Promise<Monitor> {
-  const response = await fetch(
-    `${API_URL}/monitors/${encodeURIComponent(monitorID)}`,
+  const response = await apiFetch(
+    `/monitors/${encodeURIComponent(monitorID)}`,
     {
       method: "PATCH",
       headers: {
@@ -132,8 +199,8 @@ export async function updateMonitorActive(
 }
 
 export async function deleteMonitor(monitorID: string): Promise<void> {
-  const response = await fetch(
-    `${API_URL}/monitors/${encodeURIComponent(monitorID)}`,
+  const response = await apiFetch(
+    `/monitors/${encodeURIComponent(monitorID)}`,
     { method: "DELETE" },
   );
 
@@ -159,7 +226,7 @@ export type CreateMonitorInput = {
 export async function createMonitor(
   input: CreateMonitorInput,
 ): Promise<Monitor> {
-  const response = await fetch(`${API_URL}/monitors`, {
+  const response = await apiFetch(`/monitors`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -188,9 +255,11 @@ export async function createMonitor(
 export async function getMonitorChecks(
   monitorID: string,
   limit = 50,
+  request: ApiFetch = apiFetch,
 ): Promise<CheckResult[]> {
-  const response = await fetch(
-    `${API_URL}/monitors/${encodeURIComponent(monitorID)}/checks?limit=${limit}`,
+  const response = await request(
+    `/monitors/${encodeURIComponent(monitorID)}/checks?limit=${limit}`,
+    { cache: "no-store" },
   );
 
   if (!response.ok) {
@@ -211,8 +280,8 @@ export async function getMonitorMetrics(
   monitorID: string,
   limit = 30,
 ): Promise<DailyMonitorMetric[]> {
-  const response = await fetch(
-    `${API_URL}/monitors/${encodeURIComponent(monitorID)}/metrics?limit=${limit}`,
+  const response = await apiFetch(
+    `/monitors/${encodeURIComponent(monitorID)}/metrics?limit=${limit}`,
   );
 
   if (!response.ok) {

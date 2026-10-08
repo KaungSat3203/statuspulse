@@ -2,29 +2,14 @@ package repository
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/joho/godotenv"
-
-	"github.com/KaungSat3203/statuspulse/backend/internal/db"
 	"github.com/KaungSat3203/statuspulse/backend/internal/models"
 )
 
 func TestIncidentRepository_Lifecycle(t *testing.T) {
-	_ = godotenv.Load("../../.env")
-
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Fatal("DATABASE_URL is not set")
-	}
-
-	pool, err := db.Connect(databaseURL)
-	if err != nil {
-		t.Fatalf("connect to database: %v", err)
-	}
-	defer pool.Close()
+	pool := newTestDatabase(t)
 
 	ctx := context.Background()
 	monitorRepo := NewMonitorRepository(pool)

@@ -45,7 +45,7 @@ func (h *DailyMetricsHistoryHandler) ListMetrics(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "monitor not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to load daily metrics"})
 		return
 	}
 	c.JSON(http.StatusOK, metrics)

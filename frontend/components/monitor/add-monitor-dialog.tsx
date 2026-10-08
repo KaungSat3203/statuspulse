@@ -66,7 +66,7 @@ export default function AddMonitorDialog({
   return (
     <>
       <button
-        className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-zinc-200"
+        className="ui-button-primary"
         onClick={() => setIsOpen(true)}
         type="button"
       >
@@ -76,23 +76,23 @@ export default function AddMonitorDialog({
       {isOpen && (
         <div
           aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+          className="ui-dialog-backdrop"
           role="dialog"
         >
           <form
-            className="w-full max-w-lg rounded-xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl"
+            className="ui-dialog max-w-lg"
             onSubmit={submit}
           >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-lg font-medium">Add Monitor</h2>
+                <h2 className="text-lg font-semibold tracking-tight">Add Monitor</h2>
                 <p className="mt-1 text-sm text-zinc-400">
                   Configure a service for StatusPulse to check.
                 </p>
               </div>
               <button
                 aria-label="Close add monitor form"
-                className="text-zinc-400 hover:text-white"
+                className="ui-close"
                 onClick={close}
                 type="button"
               >
@@ -104,7 +104,7 @@ export default function AddMonitorDialog({
               <Field label="Name">
                 <input
                   autoFocus
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                  className="ui-input"
                   onChange={(event) =>
                     setValues({ ...values, name: event.target.value })
                   }
@@ -115,7 +115,7 @@ export default function AddMonitorDialog({
 
               <Field label="URL">
                 <input
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                  className="ui-input"
                   onChange={(event) =>
                     setValues({ ...values, url: event.target.value })
                   }
@@ -129,7 +129,7 @@ export default function AddMonitorDialog({
               <div className="grid gap-4 sm:grid-cols-3">
                 <Field label="Expected HTTP status">
                   <input
-                    className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                    className="ui-input"
                     min="100"
                     max="599"
                     onChange={(event) =>
@@ -146,7 +146,7 @@ export default function AddMonitorDialog({
 
                 <Field label="Interval (seconds)">
                   <input
-                    className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                    className="ui-input"
                     min="5"
                     onChange={(event) =>
                       setValues({
@@ -162,7 +162,7 @@ export default function AddMonitorDialog({
 
                 <Field label="Timeout (seconds)">
                   <input
-                    className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                    className="ui-input"
                     min="1"
                     max="300"
                     onChange={(event) =>
@@ -187,14 +187,14 @@ export default function AddMonitorDialog({
 
             <div className="mt-6 flex justify-end gap-3">
               <button
-                className="rounded-lg px-4 py-2 text-sm text-zinc-300 hover:text-white"
+                className="ui-button-quiet"
                 onClick={close}
                 type="button"
               >
                 Cancel
               </button>
               <button
-                className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
+                className="ui-button-primary"
                 disabled={isSubmitting}
                 type="submit"
               >

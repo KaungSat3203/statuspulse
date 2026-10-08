@@ -2,29 +2,13 @@ package repository
 
 import (
 	"context"
-	"os"
 	"testing"
 
-	"github.com/joho/godotenv"
-
-	"github.com/KaungSat3203/statuspulse/backend/internal/db"
 	"github.com/KaungSat3203/statuspulse/backend/internal/models"
 )
 
 func TestMonitorRepository_Create(t *testing.T) {
-	// Load the project's root .env when running tests locally.
-	_ = godotenv.Load("../../.env")
-
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Fatal("DATABASE_URL is not set")
-	}
-
-	pool, err := db.Connect(databaseURL)
-	if err != nil {
-		t.Fatalf("connect to database: %v", err)
-	}
-	defer pool.Close()
+	pool := newTestDatabase(t)
 
 	repo := NewMonitorRepository(pool)
 
@@ -36,7 +20,7 @@ func TestMonitorRepository_Create(t *testing.T) {
 		TimeoutSeconds:     5,
 	}
 
-	err = repo.Create(context.Background(), monitor)
+	err := repo.Create(context.Background(), monitor)
 	if err != nil {
 		t.Fatalf("create monitor: %v", err)
 	}

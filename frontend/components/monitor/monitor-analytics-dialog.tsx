@@ -17,31 +17,24 @@ import {
   type Monitor,
 } from "@/lib/api";
 
+import {
+  buildMetricChartData,
+  formatMetricDate,
+  formatMetricLatency,
+  getMetricDateRange,
+  summarizeMetrics,
+} from "@/lib/monitor-analytics";
+
+import {
+  DialogEmptyState,
+  DialogErrorState,
+  DialogLoadingState,
+} from "@/components/ui/dialog-data-state";
+
 type MonitorAnalyticsDialogProps = {
   monitor: Monitor;
   onClose: () => void;
 };
-
-function safeNumber(value: number | null | undefined): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function formatMetricDate(value: string): string {
-  const date = new Date(`${value}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-  }).format(date);
-}
-
-function formatLatency(value: number | null | undefined): string {
-  const numeric = safeNumber(value);
-  return numeric > 0 ? `${Math.round(numeric)} ms` : "N/A";
-}
 
 export default function MonitorAnalyticsDialog({
   monitor,
@@ -49,6 +42,8 @@ export default function MonitorAnalyticsDialog({
 }: MonitorAnalyticsDialogProps) {
   const [metrics, setMetrics] = useState<DailyMonitorMetric[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -76,82 +71,36 @@ export default function MonitorAnalyticsDialog({
     return () => {
       isMounted = false;
     };
-  }, [monitor.id]);
+  }, [monitor.id, retryCount]);
 
-  const chartData = useMemo(
-    () =>
-      [...(metrics ?? [])]
-        .reverse()
-        .map((metric) => ({
-          ...metric,
-          label: formatMetricDate(metric.metric_date),
-          meanLatencyMs: safeNumber(metric.mean_latency_ms),
-          p95LatencyMs: safeNumber(metric.p95_latency_ms),
-        })),
-    [metrics],
+  const retry = () => {
+    setMetrics(null);
+    setError(null);
+    setRetryCount((count) => count + 1);
+  };
+
+  const chartData = useMemo(() => buildMetricChartData(metrics ?? []), [metrics]);
+  const summary = useMemo(() => summarizeMetrics(metrics ?? []), [metrics]);
+  const dateRange = useMemo(() => getMetricDateRange(metrics ?? []), [metrics]);
+  const hasLatency = chartData.some(
+    (metric) => metric.meanLatencyMs !== null || metric.p95LatencyMs !== null,
   );
-
-  const summary = useMemo(() => {
-    if (!metrics || metrics.length === 0) {
-      return {
-        totalChecks: 0,
-        successfulChecks: 0,
-        averageLatency: 0,
-        p95Latency: 0,
-        availability: 0,
-      };
-    }
-
-    const totalChecks = metrics.reduce(
-      (sum, metric) => sum + metric.total_checks,
-      0,
-    );
-    const successfulChecks = metrics.reduce(
-      (sum, metric) => sum + metric.successful_checks,
-      0,
-    );
-    const validMeanLatencies = metrics
-      .map((metric) => safeNumber(metric.mean_latency_ms))
-      .filter((value) => value > 0);
-    const validP95Latencies = metrics
-      .map((metric) => safeNumber(metric.p95_latency_ms))
-      .filter((value) => value > 0);
-
-    const averageLatency =
-      validMeanLatencies.length === 0
-        ? 0
-        : validMeanLatencies.reduce((sum, value) => sum + value, 0) /
-          validMeanLatencies.length;
-    const p95Latency =
-      validP95Latencies.length === 0
-        ? 0
-        : Math.max(...validP95Latencies);
-
-    return {
-      totalChecks,
-      successfulChecks,
-      averageLatency,
-      p95Latency,
-      availability:
-        totalChecks === 0 ? 0 : (successfulChecks / totalChecks) * 100,
-    };
-  }, [metrics]);
 
   return (
     <div
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+      className="ui-dialog-backdrop"
       role="dialog"
     >
-      <div className="w-full max-w-4xl rounded-xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl">
+      <div className="ui-dialog max-w-4xl">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-lg font-medium">Analytics</h2>
+            <h2 className="text-lg font-semibold tracking-tight">Analytics</h2>
             <p className="mt-1 text-sm text-zinc-400">{monitor.name}</p>
           </div>
           <button
             aria-label="Close analytics dialog"
-            className="text-zinc-400 hover:text-white"
+            className="ui-close"
             onClick={onClose}
             type="button"
           >
@@ -161,17 +110,24 @@ export default function MonitorAnalyticsDialog({
 
         <div className="mt-6">
           {error ? (
-            <p className="rounded-lg border border-red-900 bg-red-950/50 px-3 py-2 text-sm text-red-300">
-              {error}
-            </p>
+            <DialogErrorState
+              title="Unable to load analytics"
+              message={error}
+              onRetry={retry}
+            />
           ) : metrics === null ? (
-            <p className="text-sm text-zinc-400">Loading daily metrics…</p>
+            <DialogLoadingState label="Loading daily metrics…" variant="analytics" />
           ) : metrics.length === 0 ? (
-            <p className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-4 text-sm text-zinc-400">
-              No daily metrics are available for this monitor yet.
-            </p>
+            <DialogEmptyState
+              title="No daily metrics yet"
+              description="Daily metrics summarize completed UTC days. Today's checks are included after that day's aggregation runs."
+            />
           ) : (
             <>
+              <p className="mb-4 text-xs text-zinc-400">
+                {dateRange} · {metrics.length} aggregated{" "}
+                {metrics.length === 1 ? "day" : "days"} · UTC
+              </p>
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <MetricStat label="Total checks" value={summary.totalChecks} />
                 <MetricStat
@@ -179,80 +135,121 @@ export default function MonitorAnalyticsDialog({
                   value={summary.successfulChecks}
                 />
                 <MetricStat
-                  label="Average latency"
-                  value={formatLatency(summary.averageLatency)}
+                  label="Average daily latency"
+                  value={formatMetricLatency(summary.averageDailyLatency)}
+                  description="Average of daily means; each day weighted equally."
                 />
                 <MetricStat
-                  label="P95 latency"
-                  value={formatLatency(summary.p95Latency)}
+                  label="Highest daily P95"
+                  value={formatMetricLatency(summary.highestDailyP95)}
+                  description="Highest P95 among the recorded days."
                 />
               </div>
 
               <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/80 p-3 text-sm text-zinc-300">
-                Overall availability: {summary.availability.toFixed(1)}%
+                Availability:{" "}
+                {summary.availability === null
+                  ? "No checks"
+                  : `${summary.availability.toFixed(1)}%`}
+                <span className="ml-2 text-xs text-zinc-500">
+                  {summary.availability === null
+                    ? "No checks recorded in these daily metrics."
+                    : "Successful checks / total checks in this period"}
+                </span>
               </div>
 
-              <div className="mt-6 h-72 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart
-                    data={chartData}
-                    margin={{ top: 12, right: 18, left: 4, bottom: 8 }}
-                  >
-                    <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
-                    <XAxis
-                      dataKey="label"
-                      interval={0}
-                      minTickGap={18}
-                      tick={{ fill: "#a1a1aa", fontSize: 12 }}
-                    />
-                    <YAxis
-                      tick={{ fill: "#a1a1aa", fontSize: 12 }}
-                      tickFormatter={(value) => `${value} ms`}
-                    />
-                    <Tooltip
-                      formatter={(value: number | string, name: string) => {
-                        const numericValue =
-                          typeof value === "number" ? value : Number(value);
-                        const label =
-                          name === "meanLatencyMs" ? "Mean latency" : "P95 latency";
-                        return [`${Math.round(numericValue)} ms`, label];
-                      }}
-                      labelFormatter={(label) => `Date: ${label}`}
-                      contentStyle={{
-                        backgroundColor: "#09090b",
-                        borderColor: "#3f3f46",
-                        borderRadius: 12,
-                        color: "#f4f4f5",
-                      }}
-                    />
-                    <Line
-                      connectNulls
-                      dataKey="meanLatencyMs"
-                      dot={{ r: 2 }}
-                      name="meanLatencyMs"
-                      stroke="#f4f4f5"
-                      strokeWidth={2}
-                      type="monotone"
-                    />
-                    <Line
-                      connectNulls
-                      dataKey="p95LatencyMs"
-                      dot={{ r: 2 }}
-                      name="p95LatencyMs"
-                      stroke="#f59e0b"
-                      strokeWidth={2}
-                      type="monotone"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
+              {hasLatency ? (
+                <>
+                  <div className="mt-6 flex items-center justify-between gap-4">
+                    <h3 className="text-sm font-medium text-zinc-200">
+                      Daily latency
+                    </h3>
+                    <div className="flex gap-4 text-xs text-zinc-400">
+                      <span className="flex items-center gap-2">
+                        <span className="h-0.5 w-4 bg-zinc-100" />
+                        Daily mean
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <span className="h-0.5 w-4 bg-amber-500" />
+                        Daily P95
+                      </span>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-zinc-500">
+                    Gaps indicate days with no recorded latency measurement.
+                  </p>
+                  <div className="mt-3 h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={chartData}
+                        margin={{ top: 12, right: 18, left: 4, bottom: 8 }}
+                      >
+                        <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="date"
+                          tickFormatter={(value) => formatMetricDate(String(value))}
+                          interval="preserveStartEnd"
+                          minTickGap={28}
+                          tickMargin={10}
+                          tick={{ fill: "#a1a1aa", fontSize: 12 }}
+                        />
+                        <YAxis
+                          tick={{ fill: "#a1a1aa", fontSize: 12 }}
+                          tickFormatter={(value) => `${value} ms`}
+                        />
+                        <Tooltip
+                          formatter={(value: number | string, name: string) => {
+                            return [
+                              formatMetricLatency(
+                                typeof value === "number" ? value : undefined,
+                              ),
+                              name,
+                            ];
+                          }}
+                          labelFormatter={(label) =>
+                            `${formatMetricDate(String(label), true)} · UTC`
+                          }
+                          contentStyle={{
+                            backgroundColor: "#09090b",
+                            borderColor: "#3f3f46",
+                            borderRadius: 12,
+                            color: "#f4f4f5",
+                          }}
+                        />
+                        <Line
+                          connectNulls={false}
+                          dataKey="meanLatencyMs"
+                          dot={{ r: 2 }}
+                          name="Daily mean"
+                          stroke="#f4f4f5"
+                          strokeWidth={2}
+                          type="monotone"
+                        />
+                        <Line
+                          connectNulls={false}
+                          dataKey="p95LatencyMs"
+                          dot={{ r: 2 }}
+                          name="Daily P95"
+                          stroke="#f59e0b"
+                          strokeWidth={2}
+                          type="monotone"
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </>
+              ) : (
+                <p className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950/60 px-4 py-5 text-sm text-zinc-400">
+                  No latency measurements were recorded for these days.
+                </p>
+              )}
             </>
           )}
         </div>
 
         <div className="mt-6 flex justify-end">
           <button
-            className="rounded-lg px-4 py-2 text-sm text-zinc-300 hover:text-white"
+            className="ui-button-quiet"
             onClick={onClose}
             type="button"
           >
@@ -267,14 +264,21 @@ export default function MonitorAnalyticsDialog({
 function MetricStat({
   label,
   value,
+  description,
 }: {
   label: string;
   value: string | number;
+  description?: string;
 }) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+    <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-4">
       <p className="text-sm text-zinc-400">{label}</p>
-      <p className="mt-2 text-xl font-semibold text-white">{value}</p>
+      <p className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-white">
+        {value}
+      </p>
+      {description && (
+        <p className="mt-2 text-xs leading-relaxed text-zinc-500">{description}</p>
+      )}
     </div>
   );
 }

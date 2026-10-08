@@ -75,7 +75,7 @@ func corsTestRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
-	router.Use(LocalFrontendCORS())
+	router.Use(testBrowserSecurity())
 	router.POST("/monitors", func(c *gin.Context) {
 		c.Status(http.StatusCreated)
 	})

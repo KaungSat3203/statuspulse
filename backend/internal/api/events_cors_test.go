@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/KaungSat3203/statuspulse/backend/internal/auth"
 	"github.com/KaungSat3203/statuspulse/backend/internal/telemetry"
 )
 
@@ -45,10 +46,12 @@ func TestEventHandlerCORS(t *testing.T) {
 
 			recorder := httptest.NewRecorder()
 			router := gin.New()
-			router.Use(LocalFrontendCORS())
+			h := NewAuthHandler(&fakeAuth{allowed: true}, auth.Settings{Origins: []string{localFrontendOrigin}})
+			router.Use(h.BrowserSecurity(), h.Authenticate())
+			request.AddCookie(&http.Cookie{Name: h.settings.CookieName(), Value: "opaque-cookie"})
 			router.GET(
 				"/events",
-				NewEventHandler(telemetry.NewBroadcaster()).Stream,
+				NewEventHandler(telemetry.NewBroadcaster(), h, nil).Stream,
 			)
 
 			router.ServeHTTP(recorder, request)
@@ -59,6 +62,12 @@ func TestEventHandlerCORS(t *testing.T) {
 					got,
 					tt.wantOrigin,
 				)
+			}
+			if tt.wantOrigin == "" {
+				if recorder.Code != http.StatusForbidden {
+					t.Fatal("untrusted origin accepted")
+				}
+				return
 			}
 			if got := recorder.Header().Get("Content-Type"); got != "text/event-stream" {
 				t.Fatalf("Content-Type = %q, want %q", got, "text/event-stream")

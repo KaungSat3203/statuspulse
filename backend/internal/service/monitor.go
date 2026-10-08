@@ -20,13 +20,16 @@ type MonitorService struct {
 	repo MonitorRepository
 }
 
+// ValidationError is safe to return to clients; repository errors are not.
+type ValidationError struct{ error }
+
 func NewMonitorService(repo MonitorRepository) *MonitorService {
 	return &MonitorService{repo: repo}
 }
 
 func (s *MonitorService) CreateMonitor(ctx context.Context, monitor *models.Monitor) error {
 	if err := validateMonitor(monitor); err != nil {
-		return err
+		return &ValidationError{err}
 	}
 	if err := s.repo.Create(ctx, monitor); err != nil {
 		return fmt.Errorf("create monitor: %w", err)
@@ -56,7 +59,7 @@ func (s *MonitorService) UpdateMonitor(
 	update models.MonitorUpdate,
 ) (*models.Monitor, error) {
 	if !update.HasChanges() {
-		return nil, fmt.Errorf("monitor update is required")
+		return nil, &ValidationError{fmt.Errorf("monitor update is required")}
 	}
 
 	monitor, err := s.repo.GetByID(ctx, id)
@@ -84,7 +87,7 @@ func (s *MonitorService) UpdateMonitor(
 	}
 
 	if err := validateMonitor(monitor); err != nil {
-		return nil, err
+		return nil, &ValidationError{err}
 	}
 	if err := s.repo.Update(ctx, monitor); err != nil {
 		return nil, fmt.Errorf("update monitor: %w", err)

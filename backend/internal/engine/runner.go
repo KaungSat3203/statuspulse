@@ -2,11 +2,14 @@ package engine
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"sync"
 	"time"
 
 	"github.com/KaungSat3203/statuspulse/backend/internal/models"
+	"github.com/jackc/pgx/v5"
 )
 
 type MonitorRepository interface {
@@ -14,7 +17,7 @@ type MonitorRepository interface {
 }
 
 type CheckLogRepository interface {
-	CreateBatch(ctx context.Context, results []models.CheckResult) error
+	CreateBatch(ctx context.Context, results []models.CheckResult) ([]models.CheckResult, error)
 }
 
 type IncidentService interface {
@@ -133,12 +136,37 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 
 	results := r.workerPool.Run(ctx, dueMonitors)
 
-	if err := r.checkLogRepo.CreateBatch(ctx, results); err != nil {
-		log.Printf("failed to save check results: %v", err)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	persisted, err := r.checkLogRepo.CreateBatch(ctx, results)
+	if err != nil {
+		// Never replay an uncertain commit automatically: without a durable
+		// check identity that could duplicate logs and failure counters.
+		return fmt.Errorf("save check results: %w", err)
 	}
 
+	persistedIDs := make(map[string]struct{}, len(persisted))
+	for _, result := range persisted {
+		persistedIDs[result.MonitorID] = struct{}{}
+	}
+	r.mu.Lock()
 	for _, result := range results {
+		if _, exists := persistedIDs[result.MonitorID]; !exists {
+			delete(r.schedule, result.MonitorID)
+		}
+	}
+	r.mu.Unlock()
+
+	for _, result := range persisted {
 		if err := r.incidentService.ProcessCheck(ctx, result); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				// The monitor may have been deleted after the batch committed.
+				r.mu.Lock()
+				delete(r.schedule, result.MonitorID)
+				r.mu.Unlock()
+				continue
+			}
 			log.Printf(
 				"failed to process incident lifecycle for monitor %s: %v",
 				result.MonitorID,

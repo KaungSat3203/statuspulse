@@ -58,6 +58,7 @@ func TestCheckLogRetentionJobContinuesAfterCleanupError(t *testing.T) {
 	firstTimer := &fakeDailyMetricsTimer{channel: make(chan time.Time, 1)}
 	firstTimer.channel <- now
 	secondTimer := &fakeDailyMetricsTimer{channel: make(chan time.Time)}
+	secondTimerCreated := make(chan struct{})
 	var timersMu sync.Mutex
 	var timers []dailyMetricsTimer
 	repo := &fakeCheckLogRetentionRepository{err: errors.New("database unavailable"), called: make(chan struct{}, 1)}
@@ -69,11 +70,13 @@ func TestCheckLogRetentionJobContinuesAfterCleanupError(t *testing.T) {
 			return firstTimer
 		}
 		timers = append(timers, secondTimer)
+		close(secondTimerCreated)
 		return secondTimer
 	})
 	job.logf = func(string, ...any) {}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan struct{})
 	go func() {
 		job.Run(ctx)
@@ -84,6 +87,12 @@ func TestCheckLogRetentionJobContinuesAfterCleanupError(t *testing.T) {
 	case <-repo.called:
 	case <-time.After(time.Second):
 		t.Fatal("cleanup was not called")
+	}
+	// Cleanup completion alone does not mean Run has created its next timer.
+	select {
+	case <-secondTimerCreated:
+	case <-time.After(time.Second):
+		t.Fatal("job did not schedule another cleanup after the error")
 	}
 	cancel()
 
@@ -110,6 +119,7 @@ func TestCheckLogRetentionJobSchedulingAndCancellation(t *testing.T) {
 	job.logf = func(string, ...any) {}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan struct{})
 	go func() {
 		job.Run(ctx)

@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/KaungSat3203/statuspulse/backend/internal/api"
+	"github.com/KaungSat3203/statuspulse/backend/internal/auth"
 	"github.com/KaungSat3203/statuspulse/backend/internal/config"
 	"github.com/KaungSat3203/statuspulse/backend/internal/db"
 	"github.com/KaungSat3203/statuspulse/backend/internal/engine"
@@ -43,16 +46,23 @@ func main() {
 	dailyMetricsRepository := repository.NewDailyMetricsRepository(pool)
 	broadcaster := telemetry.NewBroadcaster()
 
-	monitorService := service.NewMonitorService(monitorRepository)
-	checkHistoryService := service.NewCheckHistoryService(monitorRepository, checkLogRepository)
+	authService, err := auth.NewService(repository.NewAuthRepository(pool), cfg.Auth.SessionTTL, cfg.Auth.RateLimitKey)
+	if err != nil {
+		log.Println("initialize authentication failed")
+		return
+	}
+	authHandler := api.NewAuthHandler(authService, cfg.Auth)
+	userMonitors := repository.NewUserMonitorRepository(pool)
+	monitorService := service.NewMonitorService(userMonitors)
+	checkHistoryService := service.NewCheckHistoryService(userMonitors, repository.NewUserCheckLogRepository(pool))
 	incidentService := service.NewIncidentService(monitorRepository, incidentRepository)
 	dailyMetricsService := service.NewDailyMetricsService(dailyMetricsRepository)
 
 	monitorHandler := api.NewMonitorHandler(monitorService)
 	checkHistoryHandler := api.NewCheckHistoryHandler(checkHistoryService)
-	incidentHandler := api.NewIncidentHandler(incidentService)
-	eventHandler := api.NewEventHandler(broadcaster)
-	dailyMetricsHistoryService := service.NewDailyMetricsHistoryService(monitorRepository, dailyMetricsRepository)
+	incidentHandler := api.NewIncidentHandler(service.NewIncidentHistoryService(repository.NewUserIncidentRepository(pool)))
+	eventHandler := api.NewEventHandler(broadcaster, authHandler, monitorService)
+	dailyMetricsHistoryService := service.NewDailyMetricsHistoryService(userMonitors, repository.NewUserDailyMetricsRepository(pool))
 	dailyMetricsHistoryHandler := api.NewDailyMetricsHistoryHandler(dailyMetricsHistoryService)
 
 	dailyMetricsJob := engine.NewDailyMetricsJob(monitorRepository, dailyMetricsService)
@@ -60,8 +70,17 @@ func main() {
 
 	runner := engine.NewRunner(monitorRepository, checkLogRepository, incidentService, broadcaster)
 
-	router := gin.Default()
-	api.RegisterRoutes(router, monitorHandler, checkHistoryHandler, incidentHandler, eventHandler, dailyMetricsHistoryHandler)
+	router := gin.New()
+	// Do not let panic dumps or raw query strings leak cookies/credentials.
+	router.Use(gin.CustomRecoveryWithWriter(io.Discard, func(c *gin.Context, _ any) {
+		log.Println("HTTP request panic recovered")
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+	}))
+	if err := router.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		log.Println("invalid TRUSTED_PROXY_CIDRS")
+		return
+	}
+	api.RegisterRoutes(router, monitorHandler, checkHistoryHandler, incidentHandler, eventHandler, dailyMetricsHistoryHandler, authHandler)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -84,7 +103,12 @@ func main() {
 		checkLogRetentionJob.Run(ctx)
 	}()
 
-	server := &http.Server{Addr: ":8080", Handler: router}
+	server := &http.Server{
+		Addr: ":8080", Handler: router, ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout: 15 * time.Second,
+		IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 * 1024,
+		BaseContext: func(net.Listener) context.Context { return ctx },
+	}
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.ListenAndServe() }()
 

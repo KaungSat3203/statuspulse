@@ -17,14 +17,24 @@ func (f *fakeMonitorRepository) List(ctx context.Context) ([]models.Monitor, err
 
 type fakeCheckLogRepository struct {
 	results []models.CheckResult
+	err     error
+	persist func([]models.CheckResult) []models.CheckResult
+	calls   int
 }
 
 func (f *fakeCheckLogRepository) CreateBatch(
 	ctx context.Context,
 	results []models.CheckResult,
-) error {
+) ([]models.CheckResult, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.persist != nil {
+		results = f.persist(results)
+	}
 	f.results = append(f.results, results...)
-	return nil
+	return results, nil
 }
 
 type fakeIncidentService struct {

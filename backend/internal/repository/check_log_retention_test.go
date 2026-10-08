@@ -2,29 +2,14 @@ package repository
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/joho/godotenv"
-
-	"github.com/KaungSat3203/statuspulse/backend/internal/db"
 	"github.com/KaungSat3203/statuspulse/backend/internal/models"
 )
 
 func TestCheckLogRepositoryDeleteOlderThan(t *testing.T) {
-	_ = godotenv.Load("../../.env")
-
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Fatal("DATABASE_URL is not set")
-	}
-
-	pool, err := db.Connect(databaseURL)
-	if err != nil {
-		t.Fatalf("connect database: %v", err)
-	}
-	defer pool.Close()
+	pool := newTestDatabase(t)
 
 	ctx := context.Background()
 	monitorRepo := NewMonitorRepository(pool)
@@ -62,7 +47,7 @@ func TestCheckLogRepositoryDeleteOlderThan(t *testing.T) {
 	cutoff := time.Date(2026, time.January, 16, 0, 0, 0, 0, time.UTC)
 
 	checkLogRepo := NewCheckLogRepository(pool)
-	if err := checkLogRepo.CreateBatch(ctx, []models.CheckResult{
+	if _, err := checkLogRepo.CreateBatch(ctx, []models.CheckResult{
 		{MonitorID: first.ID, CheckedAt: cutoff.Add(time.Second), StatusCode: 200, LatencyMs: 10, Reachable: true},
 		{MonitorID: first.ID, CheckedAt: cutoff, StatusCode: 200, LatencyMs: 20, Reachable: true},
 		{MonitorID: first.ID, CheckedAt: cutoff.Add(-time.Second), StatusCode: 500, LatencyMs: 30, Reachable: false},

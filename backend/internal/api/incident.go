@@ -37,7 +37,7 @@ func (h *IncidentHandler) ListIncidents(c *gin.Context) {
 
 	incidents, err := h.service.ListRecent(c.Request.Context(), limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to load incidents"})
 		return
 	}
 
